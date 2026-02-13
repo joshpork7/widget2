@@ -1,143 +1,109 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
-<title>Time Left Awake</title>
-
 <style>
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: transparent;
-    margin: 0;
-    padding: 16px;
-    text-align: center;
-  }
+body {
+  margin: 0;
+  background: #f2f2f2;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  text-align: center;
+  color: #111;
+}
 
-  .timer {
-    font-size: 52px;
-    font-weight: 600;
-    margin-bottom: 12px;
-  }
+#container {
+  display: none;
+}
 
-  .inputs {
-    display: flex;
-    justify-content: center;
-    gap: 12px;
-    margin-bottom: 14px;
-  }
+#label {
+  font-size: 12px;
+  opacity: 0.6;
+  margin-bottom: 10px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
 
-  .inputs div {
-    display: flex;
-    flex-direction: column;
-    font-size: 11px;
-    opacity: 0.7;
-  }
+#timer {
+  font-size: 72px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  margin-bottom: 20px;
+}
 
-  input[type="time"] {
-    font-size: 14px;
-    padding: 4px;
-  }
+#progressContainer {
+  width: 260px;
+  height: 4px;
+  background: #dddddd;
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 0 auto;
+}
 
-  .bar-container {
-    width: 100%;
-    height: 8px;
-    background: #e5e5e5;
-    border-radius: 4px;
-    overflow: hidden;
-  }
-
-  .bar {
-    height: 100%;
-    width: 0%;
-    background: #4f46e5;
-    transition: width 0.3s ease;
-  }
-
-  .percent {
-    font-size: 11px;
-    margin-top: 6px;
-    opacity: 0.6;
-  }
+#progressBar {
+  height: 100%;
+  width: 0%;
+  background: #222;
+  transition: width 0.5s ease;
+}
 </style>
 </head>
-
 <body>
 
-<div class="timer" id="countdown">--:--</div>
-
-<div class="inputs">
-  <div>
-    <label>Wake</label>
-    <input type="time" id="wakeTime" value="05:30">
-  </div>
-  <div>
-    <label>Bed</label>
-    <input type="time" id="bedTime" value="22:30">
+<div id="container">
+  <div id="label"></div>
+  <div id="timer">--:--</div>
+  <div id="progressContainer">
+    <div id="progressBar"></div>
   </div>
 </div>
-
-<div class="bar-container">
-  <div class="bar" id="progressBar"></div>
-</div>
-<div class="percent" id="percentText">0%</div>
 
 <script>
-const countdown = document.getElementById("countdown");
-const wakeInput = document.getElementById("wakeTime");
-const bedInput = document.getElementById("bedTime");
-const bar = document.getElementById("progressBar");
-const percentText = document.getElementById("percentText");
+const API_KEY = "AIzaSyBulpufS7w0xT0QjHIlg75Em8TXRAJfNaA";
+const CALENDAR_IDS = [
+  "f98a845d2d487246693d4bc740c763e8869338b01cf0ee3711c21436200e344d@group.calendar.google.com"
+];
 
-function parseTime(baseDate, timeStr) {
-  const [h, m] = timeStr.split(":").map(Number);
-  const d = new Date(baseDate);
-  d.setHours(h, m, 0, 0);
-  return d;
-}
+let wakeTime = null;
+let bedTime = null;
 
-function update() {
+async function fetchWakeBed() {
   const now = new Date();
+  const timeMin = new Date(now.getTime() - 24*60*60*1000).toISOString();
+  const timeMax = new Date(now.getTime() + 48*60*60*1000).toISOString();
 
-  let wake = parseTime(now, wakeInput.value);
-  let bed = parseTime(now, bedInput.value);
+  let events = [];
 
-  // handle bedtime after midnight
-  if (bed <= wake) {
-    bed.setDate(bed.getDate() + 1);
+  for (const id of CALENDAR_IDS) {
+    const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(id)}/events?key=${API_KEY}&timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`;
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.items) events = events.concat(data.items);
+    } catch (err) {
+      console.log("Calendar fetch error:", err);
+    }
   }
 
-  // if current time is after midnight but before bed
-  if (now < wake && bed.getDate() !== wake.getDate()) {
-    wake.setDate(wake.getDate() - 1);
-  }
+  const nowTime = new Date();
 
-  const totalMs = bed - wake;
-  const remainingMs = Math.max(0, bed - now);
-  const elapsedMs = Math.min(totalMs, Math.max(0, now - wake));
+  const wakeEvent = events.find(e =>
+    e.summary && e.summary.toLowerCase() === "wake" &&
+    new Date(e.start.dateTime) <= nowTime
+  );
 
-  // countdown display
-  if (now < wake) {
-    const msUntilWake = wake - now;
-    const mins = Math.floor(msUntilWake / 60000);
-    countdown.textContent = `${String(Math.floor(mins / 60)).padStart(2,"0")}:${String(mins % 60).padStart(2,"0")}`;
-  } else if (now >= bed) {
-    countdown.textContent = "00:00";
-  } else {
-    const mins = Math.floor(remainingMs / 60000);
-    countdown.textContent = `${String(Math.floor(mins / 60)).padStart(2,"0")}:${String(mins % 60).padStart(2,"0")}`;
-  }
+  const bedEvent = events.find(e =>
+    e.summary && e.summary.toLowerCase() === "bed" &&
+    new Date(e.start.dateTime) <= nowTime
+  );
 
-  // progress bar
-  const percent = Math.max(0, Math.min(100, Math.round((elapsedMs / totalMs) * 100)));
-  bar.style.width = percent + "%";
-  percentText.textContent = percent + "% awake used";
-}
+  if (wakeEvent && bedEvent) {
+    wakeTime = new Date(wakeEvent.start.dateTime);
+    bedTime = new Date(bedEvent.end.dateTime);
 
-update();
-setInterval(update, 60000);
-wakeInput.addEventListener("change", update);
-bedInput.addEventListener("change", update);
-</script>
-
-</body>
-</html>
+    // If bed occurs before wake (overnight)
+    if (bedTime <= wakeTime) {
+      bedTime.
