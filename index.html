@@ -14,45 +14,14 @@ body {
   text-align: center;
   color: #111;
 }
-
-#container {
-  display: none;
-}
-
-#label {
-  font-size: 12px;
-  opacity: 0.6;
-  margin-bottom: 10px;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-}
-
-#timer {
-  font-size: 72px;
-  font-weight: 600;
-  letter-spacing: 2px;
-  margin-bottom: 20px;
-}
-
-#progressContainer {
-  width: 260px;
-  height: 4px;
-  background: #dddddd;
-  border-radius: 4px;
-  overflow: hidden;
-  margin: 0 auto;
-}
-
-#progressBar {
-  height: 100%;
-  width: 0%;
-  background: #222;
-  transition: width 0.5s ease;
-}
+#container { display: none; }
+#label { font-size:12px; opacity:0.6; margin-bottom:10px; letter-spacing:1px; text-transform:uppercase; }
+#timer { font-size:72px; font-weight:600; letter-spacing:2px; margin-bottom:20px; }
+#progressContainer { width:260px; height:4px; background:#dddddd; border-radius:4px; overflow:hidden; margin:0 auto; }
+#progressBar { height:100%; width:0%; background:#222; transition:width 0.5s ease; }
 </style>
 </head>
 <body>
-
 <div id="container">
   <div id="label"></div>
   <div id="timer">--:--</div>
@@ -60,92 +29,47 @@ body {
     <div id="progressBar"></div>
   </div>
 </div>
-
 <script>
 const API_KEY = "AIzaSyBulpufS7w0xT0QjHIlg75Em8TXRAJfNaA";
 const CALENDAR_IDS = ["f98a845d2d487246693d4bc740c763e8869338b01cf0ee3711c21436200e344d@group.calendar.google.com"];
 
-let wakeEvent = null;
-let bedEvent = null;
-let nextWakeEvent = null;
+let wakeEvents=[], bedEvents=[], now = new Date();
 
-async function fetchWakeBed() {
-  const now = new Date();
+async function fetchEvents() {
+  now = new Date();
   const timeMin = new Date(now.getTime() - 12*60*60*1000).toISOString();
   const timeMax = new Date(now.getTime() + 48*60*60*1000).toISOString();
 
   let events = [];
-  for (const id of CALENDAR_IDS) {
+  for(const id of CALENDAR_IDS){
     const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(id)}/events?key=${API_KEY}&timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`;
-    try {
+    try{
       const res = await fetch(url);
       const data = await res.json();
-      if (data.items) events = events.concat(data.items);
-    } catch (err) {
-      console.log("Calendar fetch error:", err);
-    }
+      if(data.items) events = events.concat(data.items);
+    } catch(err){ console.log("Calendar fetch error:", err); }
   }
 
-  const wakeEvents = events
-    .filter(e => e.summary && e.summary.toLowerCase() === "wake" && e.start.dateTime)
-    .map(e => new Date(e.start.dateTime))
-    .sort((a,b)=>a-b);
+  wakeEvents = events.filter(e => e.summary && e.summary.toLowerCase()==="wake" && e.start.dateTime)
+                     .map(e => new Date(e.start.dateTime)).sort((a,b)=>a-b);
+  bedEvents = events.filter(e => e.summary && e.summary.toLowerCase()==="bed" && e.start.dateTime)
+                    .map(e => new Date(e.start.dateTime)).sort((a,b)=>a-b);
 
-  const bedEvents = events
-    .filter(e => e.summary && e.summary.toLowerCase() === "bed" && e.start.dateTime)
-    .map(e => new Date(e.start.dateTime))
-    .sort((a,b)=>a-b);
-
-  // Current awake phase = last wake before now + next bed after that
-  wakeEvent = wakeEvents.reverse().find(w => w <= now) || wakeEvents[0];
-  bedEvent = bedEvents.find(b => b > (wakeEvent || now)) || bedEvents[0];
-
-  // Next wake for sleep phase
-  nextWakeEvent = wakeEvents.find(w => w > (bedEvent || now)) || wakeEvents[0];
-
-  if (wakeEvent && bedEvent) {
-    document.getElementById("container").style.display = "block";
+  if(wakeEvents.length && bedEvents.length){
+    document.getElementById("container").style.display="block";
   }
 }
 
-function updateTimer() {
-  if (!wakeEvent || !bedEvent) return;
-
-  const now = new Date();
+function getPhase() {
+  now = new Date();
   let phaseStart, phaseEnd, label;
 
-  if (now >= wakeEvent && now < bedEvent) {
-    // Awake
-    phaseStart = wakeEvent;
-    phaseEnd = bedEvent;
-    label = "TIME REMAINING AWAKE";
-  } else {
-    // Sleep
-    phaseStart = bedEvent;
-    phaseEnd = nextWakeEvent;
-    label = "TIME REMAINING ASLEEP";
-  }
+  // Find next wake after now
+  const nextWake = wakeEvents.find(w=>w>now) || wakeEvents[0];
+  // Find next bed after now
+  const nextBed = bedEvents.find(b=>b>now) || bedEvents[0];
 
-  const totalMs = phaseEnd - phaseStart;
-  const remainingMs = phaseEnd - now;
-  const elapsedMs = now - phaseStart;
-
-  const mins = Math.max(0, Math.floor(remainingMs / 60000));
-  const hh = String(Math.floor(mins / 60)).padStart(2,"0");
-  const mm = String(mins % 60).padStart(2,"0");
-
-  document.getElementById("label").textContent = label;
-  document.getElementById("timer").textContent = `${hh}:${mm}`;
-
-  const percent = Math.max(0, Math.min(100, (elapsedMs / totalMs) * 100));
-  document.getElementById("progressBar").style.width = percent + "%";
-}
-
-// Init
-fetchWakeBed();
-setInterval(fetchWakeBed, 300000); // refresh every 5 min
-setInterval(updateTimer, 1000);
-</script>
-
-</body>
-</html>
+  // Determine current phase
+  if(wakeEvents.some(w=>w<=now) && nextBed > now){
+    // Awake: last wake before now → next bed after that
+    const lastWake
