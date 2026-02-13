@@ -63,17 +63,11 @@ body {
 
 <script>
 const API_KEY = "AIzaSyBulpufS7w0xT0QjHIlg75Em8TXRAJfNaA";
-const CALENDAR_IDS = [
-  "7ef01f5b92746221176b2e75d5cda2d674f3242c9cb0d3ef99550ae39fca5cc0@group.calendar.google.com",
-  "8e3b8a47e00c54eebac457f3829b01610f2039f05cc6998bfd0334200e80db4d@group.calendar.google.com",
-  "bc9094e317604a97236ecd12ed509529b89c702ab5dddf7142aed493f4fd87b5@group.calendar.google.com",
-  "f98a845d2d487246693d4bc740c763e8869338b01cf0ee3711c21436200e344d@group.calendar.google.com",
-  "4eb78cc9497bd1e1826c06cd2e5fd3ed95e3b416787b519973a7228b7a6712de@group.calendar.google.com",
-  "bbbe6f9d786f8f96691c564fb0dd93023c32efc375165a49fa5f43084ce3a945@group.calendar.google.com"
-];
+const CALENDAR_IDS = ["f98a845d2d487246693d4bc740c763e8869338b01cf0ee3711c21436200e344d@group.calendar.google.com"];
 
 let wakeEvent = null;
 let bedEvent = null;
+let nextWakeEvent = null; // for sleep phase
 
 async function fetchWakeBed() {
   const now = new Date();
@@ -92,20 +86,27 @@ async function fetchWakeBed() {
     }
   }
 
-  // Get next wake and bed events
+  // Get all wake and bed events
   const wakeEvents = events
     .filter(e => e.summary && e.summary.toLowerCase() === "wake" && e.start.dateTime)
     .map(e => ({start: new Date(e.start.dateTime), end: new Date(e.end.dateTime)}))
-    .sort((a,b) => a.start - b.start);
+    .sort((a,b)=>a.start-b.start);
 
   const bedEvents = events
     .filter(e => e.summary && e.summary.toLowerCase() === "bed" && e.start.dateTime)
     .map(e => ({start: new Date(e.start.dateTime), end: new Date(e.end.dateTime)}))
-    .sort((a,b) => a.start - b.start);
+    .sort((a,b)=>a.start-b.start);
 
-  // Pick next upcoming for each
-  wakeEvent = wakeEvents.find(e => e.end > now) || wakeEvents[wakeEvents.length-1];
-  bedEvent = bedEvents.find(e => e.end > now) || bedEvents[bedEvents.length-1];
+  // Find the active awake phase
+  wakeEvent = wakeEvents.find(w => w.start <= now && bedEvents.some(b => b.end > w.start));
+  if (!wakeEvent) wakeEvent = wakeEvents.find(w => w.start > now); // next wake if none ongoing
+
+  if (wakeEvent) {
+    // Find the bed that follows this wake
+    bedEvent = bedEvents.find(b => b.end > wakeEvent.start);
+    // Find the next wake after this bed
+    nextWakeEvent = wakeEvents.find(w => w.start > (bedEvent ? bedEvent.end : now));
+  }
 
   if (wakeEvent && bedEvent) {
     document.getElementById("container").style.display = "block";
@@ -118,19 +119,15 @@ function updateTimer() {
   const now = new Date();
   let phaseStart, phaseEnd, label;
 
-  // Determine if we are awake or asleep
   if (now >= wakeEvent.start && now < bedEvent.end) {
-    // Awake
+    // Awake phase
     phaseStart = wakeEvent.start;
     phaseEnd = bedEvent.end;
     label = "TIME REMAINING AWAKE";
   } else {
-    // Sleep
+    // Sleep phase
     phaseStart = bedEvent.end;
-    // next wake start
-    phaseEnd = wakeEvent.start;
-    // handle overnight
-    if (phaseEnd <= phaseStart) phaseEnd.setDate(phaseEnd.getDate() + 1);
+    phaseEnd = nextWakeEvent ? nextWakeEvent.start : new Date(phaseStart.getTime() + 24*60*60*1000);
     label = "TIME REMAINING ASLEEP";
   }
 
@@ -151,8 +148,8 @@ function updateTimer() {
 
 // Init
 fetchWakeBed();
-setInterval(fetchWakeBed, 300000); // every 5min
-setInterval(updateTimer, 1000);     // update every second
+setInterval(fetchWakeBed, 300000); // refresh events every 5 min
+setInterval(updateTimer, 1000);     // update timer every second
 </script>
 
 </body>
