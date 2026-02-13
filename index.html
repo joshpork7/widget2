@@ -64,19 +64,23 @@ body {
 <script>
 const API_KEY = "AIzaSyBulpufS7w0xT0QjHIlg75Em8TXRAJfNaA";
 const CALENDAR_IDS = [
-  "f98a845d2d487246693d4bc740c763e8869338b01cf0ee3711c21436200e344d@group.calendar.google.com"
+  "7ef01f5b92746221176b2e75d5cda2d674f3242c9cb0d3ef99550ae39fca5cc0@group.calendar.google.com",
+  "8e3b8a47e00c54eebac457f3829b01610f2039f05cc6998bfd0334200e80db4d@group.calendar.google.com",
+  "bc9094e317604a97236ecd12ed509529b89c702ab5dddf7142aed493f4fd87b5@group.calendar.google.com",
+  "f98a845d2d487246693d4bc740c763e8869338b01cf0ee3711c21436200e344d@group.calendar.google.com",
+  "4eb78cc9497bd1e1826c06cd2e5fd3ed95e3b416787b519973a7228b7a6712de@group.calendar.google.com",
+  "bbbe6f9d786f8f96691c564fb0dd93023c32efc375165a49fa5f43084ce3a945@group.calendar.google.com"
 ];
 
-let wakeTime = null;
-let bedTime = null;
+let wakeEvent = null;
+let bedEvent = null;
 
 async function fetchWakeBed() {
   const now = new Date();
-  const timeMin = new Date(now.getTime() - 24*60*60*1000).toISOString();
-  const timeMax = new Date(now.getTime() + 48*60*60*1000).toISOString();
+  const timeMin = new Date(now.getTime() - 12*60*60*1000).toISOString(); // 12h back
+  const timeMax = new Date(now.getTime() + 48*60*60*1000).toISOString(); // 48h ahead
 
   let events = [];
-
   for (const id of CALENDAR_IDS) {
     const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(id)}/events?key=${API_KEY}&timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`;
     try {
@@ -88,22 +92,68 @@ async function fetchWakeBed() {
     }
   }
 
-  const nowTime = new Date();
+  // Get next wake and bed events
+  const wakeEvents = events
+    .filter(e => e.summary && e.summary.toLowerCase() === "wake" && e.start.dateTime)
+    .map(e => ({start: new Date(e.start.dateTime), end: new Date(e.end.dateTime)}))
+    .sort((a,b) => a.start - b.start);
 
-  const wakeEvent = events.find(e =>
-    e.summary && e.summary.toLowerCase() === "wake" &&
-    new Date(e.start.dateTime) <= nowTime
-  );
+  const bedEvents = events
+    .filter(e => e.summary && e.summary.toLowerCase() === "bed" && e.start.dateTime)
+    .map(e => ({start: new Date(e.start.dateTime), end: new Date(e.end.dateTime)}))
+    .sort((a,b) => a.start - b.start);
 
-  const bedEvent = events.find(e =>
-    e.summary && e.summary.toLowerCase() === "bed" &&
-    new Date(e.start.dateTime) <= nowTime
-  );
+  // Pick next upcoming for each
+  wakeEvent = wakeEvents.find(e => e.end > now) || wakeEvents[wakeEvents.length-1];
+  bedEvent = bedEvents.find(e => e.end > now) || bedEvents[bedEvents.length-1];
 
   if (wakeEvent && bedEvent) {
-    wakeTime = new Date(wakeEvent.start.dateTime);
-    bedTime = new Date(bedEvent.end.dateTime);
+    document.getElementById("container").style.display = "block";
+  }
+}
 
-    // If bed occurs before wake (overnight)
-    if (bedTime <= wakeTime) {
-      bedTime.
+function updateTimer() {
+  if (!wakeEvent || !bedEvent) return;
+
+  const now = new Date();
+  let phaseStart, phaseEnd, label;
+
+  // Determine if we are awake or asleep
+  if (now >= wakeEvent.start && now < bedEvent.end) {
+    // Awake
+    phaseStart = wakeEvent.start;
+    phaseEnd = bedEvent.end;
+    label = "TIME REMAINING AWAKE";
+  } else {
+    // Sleep
+    phaseStart = bedEvent.end;
+    // next wake start
+    phaseEnd = wakeEvent.start;
+    // handle overnight
+    if (phaseEnd <= phaseStart) phaseEnd.setDate(phaseEnd.getDate() + 1);
+    label = "TIME REMAINING ASLEEP";
+  }
+
+  const totalMs = phaseEnd - phaseStart;
+  const remainingMs = phaseEnd - now;
+  const elapsedMs = now - phaseStart;
+
+  const mins = Math.max(0, Math.floor(remainingMs / 60000));
+  const hh = String(Math.floor(mins / 60)).padStart(2,"0");
+  const mm = String(mins % 60).padStart(2,"0");
+
+  document.getElementById("label").textContent = label;
+  document.getElementById("timer").textContent = `${hh}:${mm}`;
+
+  const percent = Math.max(0, Math.min(100, (elapsedMs / totalMs) * 100));
+  document.getElementById("progressBar").style.width = percent + "%";
+}
+
+// Init
+fetchWakeBed();
+setInterval(fetchWakeBed, 300000); // every 5min
+setInterval(updateTimer, 1000);     // update every second
+</script>
+
+</body>
+</html>
